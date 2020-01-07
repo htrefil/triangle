@@ -73,7 +73,7 @@ fn run(addr: SocketAddr) -> Result<(), Error> {
     let mut state = None;
     let mut tick = Instant::now();
     'main: loop {
-        if let Some(event) = host.process(SLEEP)? {
+        if let Some(event) = host.process(Duration::from_secs(0))? {
             match event.kind {
                 EventKind::Connect => {}
                 EventKind::Disconnect => return Err("Disconnected from server".into()),
