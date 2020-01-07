@@ -1,5 +1,4 @@
 #![feature(process_exitcode_placeholder)]
-#![feature(clamp)]
 mod texture;
 
 use asnet::{self, EventKind, Host};
@@ -19,7 +18,6 @@ use texture::Texture;
 const SLEEP: Duration = Duration::from_millis(1000 / 60);
 const PLAYER_SPEED: f64 = 4.0;
 const SHOT_SPEED: f64 = 8.0;
-const SHOT_TTL: u8 = 2;
 
 struct State {
     id: u32,
@@ -28,7 +26,7 @@ struct State {
     rotating: Rotating,
     position: Position,
     players: HashMap<u32, Position>,
-    shots: Vec<Shot>,
+    shots: Vec<Position>,
 }
 
 enum Moving {
@@ -41,11 +39,6 @@ enum Rotating {
     Left,
     Right,
     Nowhere,
-}
-
-struct Shot {
-    ttl: u8,
-    position: Position,
 }
 
 fn run(addr: SocketAddr) -> Result<(), Error> {
@@ -62,9 +55,7 @@ fn run(addr: SocketAddr) -> Result<(), Error> {
 
     let creator = canvas.texture_creator();
     let player_texture = Texture::new(&creator, include_bytes!("../data/player.png"))?;
-    let charged_shot_texture = Texture::new(&creator, include_bytes!("../data/charged_shot.png"))?;
-    let discharged_shot_texture =
-        Texture::new(&creator, include_bytes!("../data/discharged_shot.png"))?;
+    let shot_texture = Texture::new(&creator, include_bytes!("../data/shot.png"))?;
     let health_texture = Texture::new(&creator, include_bytes!("../data/health.png"))?;
 
     let mut host = Host::<()>::client()?;
@@ -108,18 +99,14 @@ fn run(addr: SocketAddr) -> Result<(), Error> {
                         if let Some(position) = state.players.get(&id).copied() {
                             let angle = position.angle.to_radians();
 
-                            state.shots.push(Shot {
-                                ttl: SHOT_TTL,
-                                position: Position {
-                                    x: position.x
-                                        + (player_texture.width() / 2
-                                            - discharged_shot_texture.width() / 2)
-                                            as f64
-                                        + angle.sin() * player_texture.width() as f64,
-                                    y: position.y + discharged_shot_texture.height() as f64 / 2.0
-                                        - angle.cos() * player_texture.height() as f64,
-                                    angle: position.angle,
-                                },
+                            state.shots.push(Position {
+                                x: position.x
+                                    + (player_texture.width() / 2 - shot_texture.width() / 2)
+                                        as f64
+                                    + angle.sin() * player_texture.width() as f64,
+                                y: position.y + shot_texture.height() as f64 / 2.0
+                                    - angle.cos() * player_texture.height() as f64,
+                                angle: position.angle,
                             });
                         }
                     }
@@ -230,56 +217,32 @@ fn run(addr: SocketAddr) -> Result<(), Error> {
             ),
         )?;
 
-        for shot in &mut state.shots {
-            let texture = if shot.ttl != SHOT_TTL {
-                &charged_shot_texture
-            } else {
-                &discharged_shot_texture
-            };
-
+        for position in &mut state.shots {
             canvas.copy_ex(
-                texture.inner(),
+                shot_texture.inner(),
                 None,
                 Rect::new(
-                    shot.position.x as i32,
-                    shot.position.y as i32,
-                    texture.width(),
-                    texture.height(),
+                    position.x as i32,
+                    position.y as i32,
+                    shot_texture.width(),
+                    shot_texture.height(),
                 ),
-                shot.position.angle,
+                position.angle,
                 None,
                 false,
                 false,
             )?;
 
-            let angle = shot.position.angle.to_radians();
-            shot.position.x += angle.sin() * SHOT_SPEED;
-            shot.position.y -= angle.cos() * SHOT_SPEED;
+            let angle = position.angle.to_radians();
+            position.x += angle.sin() * SHOT_SPEED;
+            position.y -= angle.cos() * SHOT_SPEED;
 
-            if shot.position.x > width as f64 || shot.position.x < 0.0 {
-                shot.position.x = shot.position.x.clamp(0.0, width as f64);
-                shot.position.angle = 360.0 - shot.position.angle;
-                shot.ttl = shot.ttl.saturating_sub(1);
-            }
-
-            if shot.position.y > height as f64 || shot.position.y < 0.0 {
-                shot.position.y = shot.position.y.clamp(0.0, height as f64);
-                shot.position.angle = (180.0 - shot.position.angle) % 360.0;
-                shot.ttl = shot.ttl.saturating_sub(1);
-            }
-
-            if shot.ttl == SHOT_TTL {
-                continue;
-            }
-
-            for (id, position) in &state.players {
-                if shot.position.x >= position.x
-                    && shot.position.x <= position.x + player_texture.width() as f64
-                    && shot.position.y >= position.y
-                    && shot.position.y <= position.y + player_texture.height() as f64
+            for (id, pposition) in &state.players {
+                if position.x >= pposition.x
+                    && position.x <= pposition.x + player_texture.width() as f64
+                    && position.y >= pposition.y
+                    && position.y <= pposition.y + player_texture.height() as f64
                 {
-                    shot.ttl = 0;
-
                     if *id == state.id {
                         state.health = state.health.saturating_sub(1);
                         if state.health == 0 {
@@ -290,7 +253,12 @@ fn run(addr: SocketAddr) -> Result<(), Error> {
             }
         }
 
-        state.shots.retain(|shot| shot.ttl != 0);
+        state.shots.retain(|position| {
+            position.x >= 0.0
+                && position.x <= width as f64
+                && position.y >= 0.0
+                && position.y <= height as f64
+        });
 
         for (_, position) in &state.players {
             canvas.copy_ex(
