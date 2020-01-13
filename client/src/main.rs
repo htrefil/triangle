@@ -1,4 +1,3 @@
-#![feature(process_exitcode_placeholder)]
 mod texture;
 
 use asnet::{self, EventKind, Host};
@@ -10,7 +9,7 @@ use sdl2::rect::Rect;
 use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
-use std::process::ExitCode;
+use std::process;
 use std::time::{Duration, Instant};
 use structopt::StructOpt;
 use texture::Texture;
@@ -288,21 +287,25 @@ struct Args {
     addr: SocketAddr,
 }
 
-fn main() -> ExitCode {
-    let args = match Args::from_iter_safe(env::args()) {
-        Ok(args) => args,
-        Err(err) => {
-            println!("{}", err);
-            return ExitCode::FAILURE;
+fn main() {
+    let ok = (|| {
+        let args = match Args::from_iter_safe(env::args()) {
+            Ok(args) => args,
+            Err(err) => {
+                println!("{}", err);
+                return false;
+            }
+        };
+
+        if let Err(Error(err)) = run(args.addr) {
+            println!("Error: {}", err);
+            return false;
         }
-    };
 
-    if let Err(Error(err)) = run(args.addr) {
-        println!("Error: {}", err);
-        return ExitCode::FAILURE;
-    }
+        true
+    })();
 
-    ExitCode::SUCCESS
+    process::exit(!ok as i32);
 }
 
 struct Error(String);

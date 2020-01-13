@@ -1,11 +1,10 @@
-#![feature(process_exitcode_placeholder)]
 use asnet::{Event, EventKind, Host};
 use proto::{ClientMessage, ServerMessage};
 use slab::Slab;
 use std::env;
 use std::io::Error;
 use std::net::SocketAddr;
-use std::process::ExitCode;
+use std::process;
 use structopt::StructOpt;
 
 fn run(addr: SocketAddr, width: u32, height: u32) -> Result<(), Error> {
@@ -71,19 +70,23 @@ struct Args {
     height: u32,
 }
 
-fn main() -> ExitCode {
-    let args = match Args::from_iter_safe(env::args()) {
-        Ok(args) => args,
-        Err(err) => {
-            println!("{}", err);
-            return ExitCode::FAILURE;
+fn main() {
+    let ok = (|| {
+        let args = match Args::from_iter_safe(env::args()) {
+            Ok(args) => args,
+            Err(err) => {
+                println!("{}", err);
+                return false;
+            }
+        };
+
+        if let Err(err) = run(args.listen_addr, args.width, args.height) {
+            println!("Error: {}", err);
+            return false;
         }
-    };
 
-    if let Err(err) = run(args.listen_addr, args.width, args.height) {
-        println!("Error: {}", err);
-        return ExitCode::FAILURE;
-    }
+        true
+    })();
 
-    ExitCode::SUCCESS
+    process::exit(!ok as i32);
 }
